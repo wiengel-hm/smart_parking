@@ -22,16 +22,16 @@ def replay_bagfile(bagfile_path):
 def get_mapping():
 
     index2frame = {
-        0: 'USS_SRB',  # Side Right Back
-        1: 'USS_SRF',  # Side Right Front
-        2: 'USS_FR"',  # Front Right
-        3: 'USS_FC',   # Front Center
-        4: 'USS_FL',   # Front Left
-        5: 'USS_SLF',  # Side Left Front
-        6: 'USS_SLB',  # Side Left Back
-        7: 'USS_BL',   # Back Left
-        8: 'USS_BC',   # Back Center
-        9: 'USS_BR'    # Back Right
+        0: 'USS_SRF',  # Side Right Front
+        1: 'USS_SRB',  # Side Right Back
+        2: 'USS_BR"',  # Back Right
+        3: 'USS_BC',   # Back Center
+        4: 'USS_BL',   # Back Left
+        5: 'USS_SLB',  # Side Left Back
+        6: 'USS_SLF',  # Side Left Front
+        7: 'USS_FL',   # Front Left
+        8: 'USS_FC',   # Front Center
+        9: 'USS_FR'    # Front Right
     }
 
     # Create reverse mapping from frame name to index
