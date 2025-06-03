@@ -56,12 +56,12 @@ class AutonomousParkingNode(Node):
 
         self.mode_btn = 0
 
-        self.speed_limit = 0.5
-        self.dist_open = 0.35
+        self.speed_limit = 0.4
+        self.dist_open = 0.25
         self.dist_blocked = 0.1
-        self.min_number = 3
+        self.min_number = 5
         self.parking_length = 0.7
-        self.forward_adjustment = 0.35
+        self.forward_adjustment = 1.0
 
         self.frame2index = get_mapping()
 
@@ -81,15 +81,15 @@ class AutonomousParkingNode(Node):
 
             
     def odometry_callback(self, pose_msg: PoseStamped):
-        # TODO: Extract the x-position from the pose message and store it in self.xpos
-        self.xpos = 0.0
+        self.xpos = pose_msg.pose.position.x
 
         
     def uss_callback(self, msg: Int16MultiArray):
-        # TODO: Convert the selected sensor reading to meters using self.uss_index
-        # Ignore the value if it's invalid (e.g., negative distance)
-        # Call self.update_state with the processed distance
-        distance = 0.0
+        # Process USS sensor data.
+        measurements = np.array(msg.data) / 100 # to m
+        distance = measurements[self.uss_index]
+        if distance < 0: return # Ignore invalid (negative) distance readings
+        self.distances.append(distance)
         self.update_state(distance)
 
 
@@ -116,22 +116,32 @@ class AutonomousParkingNode(Node):
 
 
     def update_state(self, distance):
-
-        # This method handles the transition between parking states based on USS distance readings.
-        # The robot can be in one of the following states:
-        # - SCANNING: looking for a valid parking spot
-        # - POSITIONING: driving forward to align with the start of the open space
-        # - PARKING: performing the parking maneuver (triggered by a bag replay)
         
-        # TODO: Analyze recent distance readings to determine the current zone (BLOCKED or OPEN)
-        # and update the mapping log accordingly.
-
+        self.get_logger().info(f"x: {self.xpos:.3f}, d: {distance:.2f}, zone: {self.zone}")
         if self.status == self.SCANNING:
-            if self.zone == self.OPEN:
-                length = self.measure_parking_length()
-                # Measure the length of the open space and check if it's long enough.
-                # If yes, compute the target position and switch to POSITIONING state.
 
+            # Before buffer is full, assume blocked (or placeholder)
+            if len(self.distances) < self.min_number:
+                self.mapping = np.vstack((self.mapping, [self.BLOCKED, self.xpos, distance]))
+                return
+
+            self.zone = self.OPEN if np.mean((np.array(self.distances) >= self.dist_open)) >= 0.5 else self.BLOCKED
+
+            if self.zone == self.OPEN:
+                self.mapping = np.vstack((self.mapping, [self.OPEN, self.xpos, distance]))
+                self.mapping[-self.min_number:, 0] = self.OPEN  # Overwrite last N entries
+                length = self.measure_parking_length(self.mapping)
+                
+
+                if length >= self.parking_length:
+                    self.status = self.POSITIONING
+                    self.target_position = self.xpos + self.forward_adjustment
+                    self.get_logger().info(f"Measured parking space length: {length:.2f} meters")
+                    self.get_logger().info(f"Initialising parking sequence: adjust position: {self.target_position:.2f}...")
+            else:
+                # Otherwise, label current measurement as blocked
+                self.mapping = np.vstack((self.mapping, [self.BLOCKED, self.xpos, distance]))
+        
         # If target position is reached,
         # stop the vehicle and start the parking maneuver.
         if self.status == self.POSITIONING:
@@ -142,15 +152,28 @@ class AutonomousParkingNode(Node):
                 replay_bagfile(self.bagfile_path)
 
 
-    def measure_parking_length(self):
-        # TODO: Calculate the length of the most recent open space by measuring
-        # the x-position range since the last zone change.
-        return 0.0
+    def measure_parking_length(self, mapping):
+
+        # Find the indices where the parking is NOT open
+        idx = np.where(mapping[:,0] != self.OPEN)[0]
+
+        if len(idx) == 0:
+            return 0.0
+        
+        # Get the last index where the spot was NOT open
+        last_idx = idx[-1]
+
+        # Extract the x-psotions startinmg right after the last not-open index
+        x = mapping[last_idx + 1:, 1]
+
+        # Return the distance between min and max (i.e. parking length)
+        return np.ptp(x) if len(x) > 0 else 0.0
 
     def init_mapping(self):
-        # TODO: Set the starting x-position to zero.
-        # Create a fixed-size buffer to store recent distance measurements.
-        # Initialize the mapping array to log zone, x-position, and distance.
+        # Reset mapping and state when reinitializing.
+        self.xpos = 0.0
+        self.distances = deque(maxlen=self.min_number)
+        self.mapping = np.empty((0, 3))
         self.status = self.SCANNING
         call_reset_odometry_service(self) # Reset odometry position to zero
         self.get_logger().info("Mapping and state initialized.")
