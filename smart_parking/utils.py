@@ -1,10 +1,11 @@
 import subprocess
+from std_msgs.msg import String, Bool
 
 def replay_bagfile(bagfile_path):
     try:
         # Define remapping and filtering options correctly
         remap_option = '/rc/ackermann_cmd:=/autonomous/ackermann_cmd'  # Use --remap for ROS 2 remapping
-        filter_option = '/rc/ackermann_cmd'  # Example filter option
+        filter_option = '/rc/ackermann_cmd /parking/status'  # Example filter option
 
         # Start `ros2 bag play` with correct remapping and filtering syntax
         process = subprocess.Popen([
@@ -38,3 +39,14 @@ def get_mapping():
     frame2index = {frame: i for i, frame in index2frame.items()}
 
     return frame2index
+
+
+def to_string(text: str):
+    msg = String()
+    msg.data = text
+    return msg
+
+def to_bool(val: bool):
+    msg = Bool()
+    msg.data = bool(val)
+    return msg
