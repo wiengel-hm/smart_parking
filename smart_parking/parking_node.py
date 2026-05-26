@@ -14,7 +14,7 @@ import os
 from ros2_pydata import to_ackermann
 from rclpy.qos import qos_profile_sensor_data  # Quality of Service settings for real-time data
 from smart_parking.utils import get_mapping, replay_bagfile, to_string, to_bool
-
+from smart_parking.plot_utils import plot_vals
 
 class AutonomousParkingNode(Node):
     def __init__(self, bagfile_path, frame='USS_SRF'):
@@ -57,6 +57,7 @@ class AutonomousParkingNode(Node):
         self.dx = 0                    # Change in X position per step
         self.previous_x = 0            # Last recorded X position
         self.length = 0.0              # Tracked length of the current open parking spot
+        self.positions = []            # All positions in x
 
         # --- Sensor Mapping Setup ---
         self.frame2index = get_mapping()
@@ -79,6 +80,7 @@ class AutonomousParkingNode(Node):
     def odometry_callback(self, pose_msg: PoseStamped):
         """Updates the vehicle's current position along the X-axis."""
         self.xpos = pose_msg.pose.position.x
+        self.positions.append(self.xpos)
 
     def uss_callback(self, msg: Int16MultiArray):
         """Processes raw ultrasonic sensor data to detect openings and update state."""
@@ -117,43 +119,38 @@ class AutonomousParkingNode(Node):
                 self.init_mapping()
 
     def update_state(self, distance):
-        """Main state machine managing scanning, positioning, and parking execution."""
-        # Transition from driving to scanning once the car passes a baseline distance
+        """
+        State machine with 4 states: DRIVING → SCANNING → POSITIONING → PARKING_IN.
+        - DRIVING:     Car moves forward before reaching the parking zone.
+        - SCANNING:    Car measures open space alongside it via the USS sensor.
+                       A sliding window smooths noisy readings — a single spike
+                       could falsely open or close a spot.
+        - POSITIONING: Spot is long enough; car drives forward to align for reverse entry.
+        - PARKING_IN:  Car executes the pre-recorded parking maneuver.
+        """
+        # Transition from DRIVING to SCANNING once the car passes the parking zone start
         if self.xpos > 0.6 and self.status == "DRIVING":
             self.status = "SCANNING"
 
-        # Moving window filter: spot is open if any reading in the window exceeds dist_open
-        self.window.append(distance)
-        self.is_open = np.any(np.array(self.window) >= self.dist_open)
-        
-        self.get_logger().info(f"x: {self.xpos:.3f}, len: {self.length:.3f}, d: {distance:.2f}, is_open: {self.is_open}, status: {self.status}")
-
-        # Calculate incremental distance traveled since last callback
-        self.dx = self.xpos - self.previous_x
-        self.previous_x = self.xpos
-
-        # --- STATE: SCANNING FOR A SPOT ---
-        if self.status == "SCANNING":
-            if self.is_open:
-                self.length += self.dx  # Accumulate spot length while space is open
-            else:
-                self.length = 0.0       # Reset tracking if space is blocked again
-
-            # If spot is long enough, transition to positioning phase
-            if self.length >= self.parking_length:
-                self.status = "POSITIONING"
-                self.target_position = self.xpos + self.forward_adjustment
-                self.get_logger().info(f"Measured parking space length: {self.length:.2f} meters")
-                self.get_logger().info(f"Initialising parking sequence: adjust position: {self.target_position:.2f}...")
-
-        # --- STATE: POSITIONING THE CAR FOR REVERSE ---
-        # If target position is reached, stop the vehicle and start the parking maneuver.
+        # TODO: SCANNING
+        #   Use the sliding window to decide if the space is open or blocked.
+        #   While open, accumulate self.length as the car moves (use self.dx).
+        #   Reset self.length to 0.0 if the space becomes blocked again.
+        #   Once self.length >= self.parking_length, set self.status = "POSITIONING"
+        #   and compute self.target_position (how far ahead the car still needs to go).
+ 
+        # TODO: POSITIONING
+        #   Track self.xpos and wait until the car reaches self.target_position.
+        #   Once there, brake the car and set self.status = "PARKING_IN".
         if self.status == "POSITIONING":
-            if self.xpos >= self.target_position:
-                self.get_logger().info(f"Parking position x = {self.target_position:.3f} reached!")
-                self.brake()
-                self.status = "PARKING_IN"
-                replay_bagfile(self.bagfile_path) # Playback pre-recorded sequence to park
+            self.get_logger().info(f"Waiting for car to reach target position...")
+ 
+        # TODO: PARKING_IN
+        #   Replay the pre-recorded bagfile to execute the parking maneuver.
+        if self.status == "PARKING_IN":
+            self.get_logger().info("Replaying reverse parallel parking maneuver...")
+
+
 
     def init_mapping(self):
         """Resets moving filter window and resets internal odometry tracking variables."""
@@ -163,12 +160,16 @@ class AutonomousParkingNode(Node):
         self.previous_x = self.xpos if hasattr(self, 'xpos') else 0.0
         self.get_logger().info("Mapping and state initialized.")
 
+    def plot_results(self, pkg_path):
+        plots_path = pkg_path + '/plots/xpos_movement.png'
+        plot_vals(self.positions, plots_path)
 
 def main(args=None):
     rclpy.init(args=args)
 
     # Resolve paths: rewrites ROS2 workspace structure to find source asset files
-    pkg_dir = get_package_prefix('smart_parking').replace('install', 'src')  
+    pkg_dir = get_package_prefix('smart_parking').replace('install', 'src')
+    
     bagfile_path = pkg_dir + '/bagfiles/reverse_parallel_parking_status/reverse_parallel_parking_status.mcap'
 
     node = AutonomousParkingNode(bagfile_path)
@@ -177,10 +178,13 @@ def main(args=None):
         rclpy.spin(node)
     except KeyboardInterrupt:
         node.get_logger().info("Shutting down Autonomous Parking Node.")
+        pass
     finally:
+        node.plot_results(pkg_dir)
         node.destroy_node()
-        rclpy.shutdown()
 
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
