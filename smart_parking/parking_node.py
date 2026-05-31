@@ -14,6 +14,7 @@ import os
 from ros2_pydata import to_ackermann
 from rclpy.qos import qos_profile_sensor_data  # Quality of Service settings for real-time data
 from smart_parking.utils import get_mapping, replay_bagfile, to_string, to_bool
+from odometry.call_service import call_reset_odometry_service
 
 
 class AutonomousParkingNode(Node):
@@ -52,7 +53,7 @@ class AutonomousParkingNode(Node):
         # --- State Machine & Threshold Variables ---
         self.window_size = 4           # Size of moving window for filtering sensor noise
         self.dist_open = 0.25          # Minimum distance (m) to consider a spot "open"
-        self.parking_length = 0.7      # Required open space length (m) to fit the vehicle
+        self.parking_length = 0.9      # Required open space length (m) to fit the vehicle
         self.forward_adjustment = 0.3  # Extra distance (m) to drive forward before reversing
         self.dx = 0                    # Change in X position per step
         self.previous_x = 0            # Last recorded X position
@@ -115,12 +116,12 @@ class AutonomousParkingNode(Node):
 
             if mode == self.AUTONOMOUS:
                 self.init_mapping()
+                self.status = "SCANNING"
+            if mode == self.MANUAL:
+                self.status = "DRIVING"
 
     def update_state(self, distance):
         """Main state machine managing scanning, positioning, and parking execution."""
-        # Transition from driving to scanning once the car passes a baseline distance
-        if self.xpos > 0.6 and self.status == "DRIVING":
-            self.status = "SCANNING"
 
         # Moving window filter: spot is open if any reading in the window exceeds dist_open
         self.window.append(distance)
@@ -157,6 +158,10 @@ class AutonomousParkingNode(Node):
 
     def init_mapping(self):
         """Resets moving filter window and resets internal odometry tracking variables."""
+
+        # Call the reset service so the odometry starts from the origin with a cleared path.
+        call_reset_odometry_service(self)
+        
         self.window = deque([0.0] * self.window_size, maxlen=self.window_size)
         # Reset tracking properties to ensure state calculations start clean
         self.length = 0.0
