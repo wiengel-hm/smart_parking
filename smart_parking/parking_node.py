@@ -42,6 +42,11 @@ class AutonomousParkingNode(Node):
         self.status_pub = self.create_publisher(String, '/parking/status', qos_profile)
         self.open_pub = self.create_publisher(Bool, '/parking/open', qos_profile)
 
+        # --- Ultrasonic Sensor Constants ---
+        self.MAX_SENSOR_DISTANCE = 1.5
+        self.OUT_OF_RANGE = -1
+        self.SENSOR_ERROR = -2
+
         # --- Parking Logic Parameters & Enums ---
         self.DEADMAN = 0
         self.AUTONOMOUS = 1
@@ -83,13 +88,21 @@ class AutonomousParkingNode(Node):
 
     def uss_callback(self, msg: Int16MultiArray):
         """Processes raw ultrasonic sensor data to detect openings and update state."""
-        measurements = np.array(msg.data) / 100.0  # Convert centimeters to meters
-        distance = measurements[self.uss_index]
-        
-        if distance < 0: 
-            return  # Ignore invalid (negative) distance readings
-            
-        self.update_state(distance)
+        measurements = np.array(msg.data)
+
+        distance_cm = measurements[self.uss_index]
+
+        if distance_cm == self.OUT_OF_RANGE:
+            distance_m = 1.5  # Out of range: use maximum sensor distance.
+
+        elif distance_cm == self.SENSOR_ERROR:
+            self.get_logger().warn("Ultrasonic sensor error: sensor not visible.", throttle_duration_sec=5.0)
+            return
+
+        else:
+            distance_m = distance_cm / 100.0  # Convert centimeters to meters
+
+        self.update_state(distance_m)
 
         # Publish the current state for visualization/monitoring
         self.status_pub.publish(to_string(self.status))
