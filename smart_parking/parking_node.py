@@ -59,7 +59,7 @@ class AutonomousParkingNode(Node):
         self.window_size = 4           # Size of moving window for filtering sensor noise
         self.dist_open = 0.25          # Minimum distance (m) to consider a spot "open"
         self.parking_length = 0.9      # Required open space length (m) to fit the vehicle
-        self.forward_adjustment = 0.3  # Extra distance (m) to drive forward before reversing
+        self.forward_adjustment = 0.2  # Extra distance (m) to drive forward before reversing
         self.dx = 0                    # Change in X position per step
         self.previous_x = 0            # Last recorded X position
         self.length = 0.0              # Tracked length of the current open parking spot
@@ -140,7 +140,11 @@ class AutonomousParkingNode(Node):
         self.window.append(distance)
         self.is_open = np.any(np.array(self.window) >= self.dist_open)
         
-        self.get_logger().info(f"x: {self.xpos:.3f}, len: {self.length:.3f}, d: {distance:.2f}, is_open: {self.is_open}, status: {self.status}")
+        self.get_logger().info(
+            f"x: {self.xpos:.3f}, len: {self.length:.3f}, d: {distance:.2f}, "
+            f"is_open: {self.is_open}, status: {self.status}",
+            throttle_duration_sec=1.0
+        )
 
         # Calculate incremental distance traveled since last callback
         self.dx = self.xpos - self.previous_x
@@ -178,7 +182,7 @@ class AutonomousParkingNode(Node):
         self.window = deque([0.0] * self.window_size, maxlen=self.window_size)
         # Reset tracking properties to ensure state calculations start clean
         self.length = 0.0
-        self.previous_x = self.xpos if hasattr(self, 'xpos') else 0.0
+        self.previous_x = 0.0
         self.get_logger().info("Mapping and state initialized.")
 
 
@@ -187,7 +191,7 @@ def main(args=None):
 
     # Resolve paths: rewrites ROS2 workspace structure to find source asset files
     pkg_dir = get_package_prefix('smart_parking').replace('install', 'src')  
-    bagfile_path = pkg_dir + '/bagfiles/reverse_parallel_parking_status/reverse_parallel_parking_status.mcap'
+    bagfile_path = pkg_dir + '/bagfiles/reverse_parallel_parking_status_db3/reverse_parallel_parking_status_db3.db3'
 
     node = AutonomousParkingNode(bagfile_path)
 
