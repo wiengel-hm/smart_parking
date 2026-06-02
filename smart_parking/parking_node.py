@@ -63,6 +63,7 @@ class AutonomousParkingNode(Node):
         self.dx = 0                    # Change in X position per step
         self.previous_x = 0            # Last recorded X position
         self.length = 0.0              # Tracked length of the current open parking spot
+        self.max_speed = 0.6           # Maximum vehicle speed while scanning for a parking spot
 
         # --- Sensor Mapping Setup ---
         self.frame2index = get_mapping()
@@ -75,7 +76,6 @@ class AutonomousParkingNode(Node):
         self.mode = None               # Current driving mode (Deadman, Autonomous, Manual)
         self.status = "DRIVING"        # State machine: DRIVING -> SCANNING -> POSITIONING -> PARKING_IN
         self.is_open = False           # Flag indicating if a spot is currently detected
-        self.xpos = 0.0                # Tracked vehicle X position (added initialization)
 
         # Inline helper function to publish a full stop command
         self.brake = lambda: self.autonomous_pub.publish(to_ackermann(.0, .0))
@@ -115,6 +115,9 @@ class AutonomousParkingNode(Node):
         # Stop once parking starts to avoid conflicts with parking commands.
         if self.mode != self.AUTONOMOUS or self.status == "PARKING_IN":
             return
+
+        # Limit the forwarded speed while scanning for a parking spot
+        msg.drive.speed = min(msg.drive.speed, self.max_speed)
 
         self.autonomous_pub.publish(msg)
 
@@ -183,6 +186,7 @@ class AutonomousParkingNode(Node):
         # Reset tracking properties to ensure state calculations start clean
         self.length = 0.0
         self.previous_x = 0.0
+        self.xpos = 0.0  # Tracked vehicle X position
         self.get_logger().info("Mapping and state initialized.")
 
 
